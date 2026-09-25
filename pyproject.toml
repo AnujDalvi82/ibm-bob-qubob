@@ -1,0 +1,63 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qubob"
+version = "0.1.0"
+description = "Quantum-Inspired Unconstrained Binary Optimizer for Kubernetes microservice placement"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "QUBOB Team", email = "qubob@ibm-hack.local" },
+]
+keywords = ["quantum-inspired", "kubernetes", "optimisation", "QUBO", "placement"]
+requires-python = ">=3.13"
+
+dependencies = [
+  "pydantic>=2.7",
+  "networkx>=3.3",
+  "numpy>=2.0",
+  "rich>=13.7",
+  "pyyaml>=6.0",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]
+
+[project.scripts]
+qubob = "bob_optimizer.cli.main:cli"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["bob_optimizer"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+ignore_missing_imports = true
