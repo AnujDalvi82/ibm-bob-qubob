@@ -1,0 +1,46 @@
+{
+  "mcpServers": {
+    "qubob-mcp": {
+      "command": "python",
+      "args": ["-m", "bob_optimizer.cli.main"],
+      "description": "QUBOB Quantum-Inspired Microservice Architecture Optimizer",
+      "tools": [
+        {
+          "name": "qubob_analyze",
+          "description": "Parses Kubernetes or Docker Compose manifests and identifies top latency bottleneck edges.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "description": "Path to manifests directory or file" }
+            },
+            "required": ["path"]
+          }
+        },
+        {
+          "name": "qubob_optimize",
+          "description": "Solves NP-hard microservice placement using QIEA, returning the optimal node assignments and cost reduction percentage.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "description": "Path to manifests" },
+              "algorithm": { "type": "string", "enum": ["qiea", "ga", "greedy"], "default": "qiea" },
+              "generations": { "type": "integer", "default": 200 }
+            },
+            "required": ["path"]
+          }
+        },
+        {
+          "name": "qubob_diff",
+          "description": "Generates syntax-highlighted unified git diffs injecting Kubernetes nodeAffinity and spread constraints.",
+          "inputSchema": {
+            "type": "object",
+            "properties": {
+              "path": { "type": "string", "description": "Path to manifests" }
+            },
+            "required": ["path"]
+          }
+        }
+      ]
+    }
+  }
+}
