@@ -1,0 +1,66 @@
+# QUBOB Project Rules
+# Loaded automatically by IBM Bob when the workspace root contains this file.
+# These rules apply to ALL agents, modes, and skills operating in this project.
+
+## Language & Runtime
+
+- Target Python **3.13** exclusively. Never suggest syntax or APIs unavailable in 3.13.
+- All source files use UTF-8 encoding and UNIX line endings.
+
+## Typing
+
+- **Strict typing is mandatory.** Every function must carry complete parameter and
+  return-type annotations (including `None` for void functions).
+- No `Any`, no `# type: ignore`, no implicit `Optional` without explicit `| None`.
+- Run `mypy bob_optimizer/ --strict` before considering any change complete.
+
+## Pydantic Models
+
+- All domain models in `bob_optimizer/model/` **must use frozen Pydantic v2 models**:
+  `model_config = ConfigDict(frozen=True)`.
+- No mutable default fields. Use `default_factory` for collections.
+- Validators use the `@model_validator` / `@field_validator` decorators — never
+  `__init__` overrides.
+
+## Quantum Simulation
+
+- The QIEA solver (`bob_optimizer/solvers/qiea.py`) **must remain pure NumPy**.
+  No SciPy, no Qiskit, no external quantum SDK imports — this project runs
+  entirely on classical hardware with zero quantum-cloud calls.
+- Q-bit amplitudes must satisfy `|α|² + |β|² = 1` after every rotation step.
+  Renormalise explicitly if floating-point drift occurs.
+- `numpy.random.default_rng(seed)` for all stochastic operations (reproducible
+  runs); never call `random.random()` or `numpy.random.seed()`.
+
+## Testing
+
+- **All changes must be verified by `pytest`** before committing.
+- Minimum passing bar: 228 tests, zero failures, zero unexpected warnings.
+- New behaviour → new tests in `tests/`. One test module per source module.
+- Do not delete or skip existing tests. If a test fails, fix the source, not the test.
+
+## CLI Entrypoint
+
+- The public CLI command is `bob-opt` (alias `qubob`). Never rename or break
+  existing sub-commands: `analyze`, `optimize`, `diff`, `apply`, `dashboard`.
+
+## Code Style
+
+- Line length: 100 characters (ruff `line-length = 100`).
+- Lint with `ruff check bob_optimizer/ tests/ --fix` before every commit.
+- No print statements in library code; use `rich.console.Console` for user output.
+- No `os.system` / `subprocess` calls inside library modules.
+
+## Dependencies
+
+- Do **not** add new runtime dependencies without updating `pyproject.toml` and
+  confirming the package is available for Python 3.13.
+- `fastapi` and `uvicorn` are optional (dashboard only); never import them at
+  module top-level outside `bob_optimizer/dashboard/`.
+
+## Bobcoin Budget
+
+- Memory ceiling: **50 MiB peak RSS** for any solver run on the Enterprise
+  topology (64 services × 12 nodes). Prefer views and in-place NumPy ops.
+- Solve-time ceiling: **30 s** for 200 generations on the Enterprise topology
+  on a single CPU core.
