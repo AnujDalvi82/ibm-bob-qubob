@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-auth
+  namespace: fintech
+  labels:
+    app: identity-auth
+    tier: security
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "redis-session:6800,postgres-primary:1200,kyc-service:400"
+    qubob.io/description: "OAuth2/OIDC identity provider — JWT issuance, MFA, biometric auth"
+    qubob.io/anti-affinity: "card-vault"
+    qubob.io/pci-dss: "isolation-required"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: identity-auth
+  template:
+    metadata:
+      labels:
+        app: identity-auth
+        tier: security
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: identity-auth
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: card-vault
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: identity-auth
+                topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 90
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis-session
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: identity-auth
+          image: fintech/identity-auth:4.1.0
+          ports:
+            - containerPort: 8090
+          resources:
+            requests:
+              cpu: "600m"
+              memory: "768Mi"
+            limits:
+              cpu: "1200m"
+              memory: "1536Mi"
+          env:
+            - name: SESSION_STORE_URL
+              value: "redis://redis-session:6379"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: identity-secret
+                  key: private-key
+            - name: MFA_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: identity-secret
+                  key: mfa-seed
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-auth
+  namespace: fintech
+spec:
+  selector:
+    app: identity-auth
+  ports:
+    - port: 8090
+      targetPort: 8090

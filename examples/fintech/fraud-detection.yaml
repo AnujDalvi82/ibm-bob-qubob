@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection
+  namespace: fintech
+  labels:
+    app: fraud-detection
+    tier: risk
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "clickhouse-analytics:2200,redis-limiter:1800,kafka-cluster:1500,postgres-replica:900"
+    qubob.io/description: "Real-time ML fraud scoring — feature engineering, gradient-boost inference, velocity checks"
+    qubob.io/pci-dss: "cardholder-data-environment"
+    qubob.io/sla: "p99-latency-5ms"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: fraud-detection
+  template:
+    metadata:
+      labels:
+        app: fraud-detection
+        tier: risk
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: fraud-detection
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: payment-switch
+                topologyKey: kubernetes.io/hostname
+            - weight: 90
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: clickhouse-analytics
+                topologyKey: kubernetes.io/hostname
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis-limiter
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fraud-detection
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: fraud-detection
+          image: fintech/fraud-detection:6.4.2
+          ports:
+            - containerPort: 8096
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4096Mi"
+            limits:
+              cpu: "4000m"
+              memory: "8192Mi"
+          env:
+            - name: CLICKHOUSE_URL
+              value: "http://clickhouse-analytics:8123"
+            - name: REDIS_URL
+              value: "redis://redis-limiter:6379"
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: MODEL_REGISTRY_URL
+              value: "http://monitoring-agent:9090/models"
+            - name: REPLICA_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: replica-url
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8096
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8096
+            initialDelaySeconds: 20
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection
+  namespace: fintech
+spec:
+  selector:
+    app: fraud-detection
+  ports:
+    - port: 8096
+      targetPort: 8096

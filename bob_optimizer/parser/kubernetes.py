@@ -156,6 +156,35 @@ def _parse_affinity(
     return required_node_labels, preferred_node_labels, anti_affinity_services
 
 
+def _parse_rpc_deps_annotation(
+    annotation_value: str,
+    known_service_names: set[str],
+    source_name: str,
+) -> dict[str, float]:
+    """Parse ``qubob.io/rpc-deps`` annotation into a {target: rps} mapping.
+
+    Format: ``"target1:rps1,target2:rps2"``  — e.g. ``"fraud-detection:3500,card-vault:2800"``
+    """
+    result: dict[str, float] = {}
+    for part in annotation_value.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            target, _, rps_str = part.partition(":")
+            target = target.strip().lower()
+            try:
+                rps = float(rps_str.strip())
+            except ValueError:
+                rps = 1.0
+        else:
+            target = part.lower()
+            rps = 1.0
+        if target and target in known_service_names and target != source_name:
+            result[target] = rps
+    return result
+
+
 def _infer_dependencies(
     containers: list[dict[str, Any]],
     known_service_names: set[str],
@@ -275,28 +304,37 @@ def parse_manifests(
 
     # Second pass: build Service objects and infer dependencies
     services: list[Service] = []
-    raw_deps: list[tuple[str, str]] = []
+    # Maps (source, target) → rps; annotation-declared edges take priority over inferred ones
+    edge_rps: dict[tuple[str, str], float] = {}
 
     for doc in all_docs:
         kind = doc.get("kind", "")
         if kind in _WORKLOAD_KINDS:
             svc = _workload_to_service(doc, known_names)
             services.append(svc)
+
+            # 1. Annotation-declared dependencies with real RPS values
+            rpc_deps_raw = svc.annotations.get("qubob.io/rpc-deps", "")
+            if rpc_deps_raw:
+                annotation_deps = _parse_rpc_deps_annotation(rpc_deps_raw, known_names, svc.name)
+                for target, rps in annotation_deps.items():
+                    edge_rps[(svc.name, target)] = rps
+
+            # 2. Env-var-inferred dependencies (used only when no annotation edge exists)
             spec: dict[str, Any] = doc.get("spec") or {}
             template_spec: dict[str, Any] = (spec.get("template") or {}).get("spec") or {}
             containers: list[dict[str, Any]] = template_spec.get("containers") or []
-            raw_deps.extend(_infer_dependencies(containers, known_names, svc.name))
+            for source, target in _infer_dependencies(containers, known_names, svc.name):
+                if (source, target) not in edge_rps:
+                    edge_rps[(source, target)] = 1.0
         elif kind not in _IGNORED_KINDS and kind:
             # Unknown kind — skip silently (no warning in library code)
             pass
 
-    # Deduplicate dependencies
-    seen_edges: set[tuple[str, str]] = set()
-    deps: list[ServiceDependency] = []
-    for source, target in raw_deps:
-        if (source, target) not in seen_edges:
-            deps.append(ServiceDependency(source=source, target=target, calls_per_second=1.0))
-            seen_edges.add((source, target))
+    deps: list[ServiceDependency] = [
+        ServiceDependency(source=src, target=tgt, calls_per_second=rps)
+        for (src, tgt), rps in edge_rps.items()
+    ]
 
     return ClusterTopology(
         name=cluster_name,

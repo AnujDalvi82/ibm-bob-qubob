@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: fintech
+  labels:
+    app: api-gateway
+    tier: ingress
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "web-bff:8000,mobile-bff:6000,redis-limiter:5000,identity-auth:4500"
+    qubob.io/description: "Edge API Gateway — rate limiting, TLS termination, JWT validation"
+    qubob.io/traffic-zone: "public"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        tier: ingress
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: api-gateway
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: api-gateway
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 90
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis-limiter
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: api-gateway
+          image: fintech/api-gateway:3.2.1
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 8443
+              name: https
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "1024Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2048Mi"
+          env:
+            - name: RATE_LIMITER_URL
+              value: "redis://redis-limiter:6379"
+            - name: AUTH_SERVICE_URL
+              value: "http://identity-auth:8090"
+            - name: WEB_BFF_URL
+              value: "http://web-bff:3000"
+            - name: MOBILE_BFF_URL
+              value: "http://mobile-bff:3001"
+            - name: TLS_CERT_PATH
+              value: "/etc/tls/tls.crt"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: fintech
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: https
+      port: 443
+      targetPort: 8443

@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickhouse-analytics
+  namespace: fintech
+  labels:
+    app: clickhouse-analytics
+    tier: data
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: ""
+    qubob.io/description: "ClickHouse OLAP cluster — real-time fraud feature store, transaction analytics, reporting"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clickhouse-analytics
+  template:
+    metadata:
+      labels:
+        app: clickhouse-analytics
+        tier: data
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: clickhouse-analytics
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: clickhouse-analytics
+              topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 95
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fraud-detection
+                topologyKey: kubernetes.io/hostname
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: audit-logger
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: clickhouse-analytics
+          image: clickhouse/clickhouse-server:24.5
+          ports:
+            - containerPort: 8123
+              name: http
+            - containerPort: 9000
+              name: tcp
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4096Mi"
+            limits:
+              cpu: "4000m"
+              memory: "8192Mi"
+          env:
+            - name: CLICKHOUSE_DB
+              value: "fintech_analytics"
+            - name: CLICKHOUSE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: username
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: clickhouse-secret
+                  key: password
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: 8123
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-analytics
+  namespace: fintech
+spec:
+  selector:
+    app: clickhouse-analytics
+  ports:
+    - name: http
+      port: 8123
+      targetPort: 8123
+    - name: tcp
+      port: 9000
+      targetPort: 9000

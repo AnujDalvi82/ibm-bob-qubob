@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: card-vault
+  namespace: fintech
+  labels:
+    app: card-vault
+    tier: security
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "postgres-primary:2400,audit-logger:2000,kafka-cluster:800"
+    qubob.io/description: "PCI-DSS P2PE card tokenisation vault — HSM-backed encryption, PAN storage, detokenisation"
+    qubob.io/anti-affinity: "identity-auth,monitoring-agent"
+    qubob.io/pci-dss: "cardholder-data-environment"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: card-vault
+  template:
+    metadata:
+      labels:
+        app: card-vault
+        tier: security
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: card-vault
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: identity-auth
+              topologyKey: kubernetes.io/hostname
+            - labelSelector:
+                matchLabels:
+                  app: monitoring-agent
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: card-vault
+                topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 95
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: postgres-primary
+                topologyKey: kubernetes.io/hostname
+            - weight: 90
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: audit-logger
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: card-vault
+          image: fintech/card-vault:7.0.1
+          ports:
+            - containerPort: 8094
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "3072Mi"
+            limits:
+              cpu: "3000m"
+              memory: "6144Mi"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: HSM_PIN
+              valueFrom:
+                secretKeyRef:
+                  name: card-vault-secret
+                  key: hsm-pin
+            - name: MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: card-vault-secret
+                  key: master-key
+            - name: AUDIT_SERVICE_URL
+              value: "http://audit-logger:8099"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8094
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: card-vault
+  namespace: fintech
+spec:
+  selector:
+    app: card-vault
+  ports:
+    - port: 8094
+      targetPort: 8094

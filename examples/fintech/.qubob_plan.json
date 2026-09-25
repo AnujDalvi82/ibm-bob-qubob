@@ -1,0 +1,117 @@
+{
+  "plan": {
+    "assignments": [
+      {
+        "service_name": "account-ledger",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "api-gateway",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      },
+      {
+        "service_name": "audit-logger",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "card-vault",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "clickhouse-analytics",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      },
+      {
+        "service_name": "credit-scoring",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "fraud-detection",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      },
+      {
+        "service_name": "identity-auth",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "kafka-cluster",
+        "node_name": "node-2",
+        "zone": "us-east-1c"
+      },
+      {
+        "service_name": "kyc-service",
+        "node_name": "node-2",
+        "zone": "us-east-1c"
+      },
+      {
+        "service_name": "mobile-bff",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "monitoring-agent",
+        "node_name": "node-2",
+        "zone": "us-east-1c"
+      },
+      {
+        "service_name": "notification-dispatcher",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "payment-switch",
+        "node_name": "node-2",
+        "zone": "us-east-1c"
+      },
+      {
+        "service_name": "postgres-primary",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      },
+      {
+        "service_name": "postgres-replica",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "redis-limiter",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      },
+      {
+        "service_name": "redis-session",
+        "node_name": "node-0",
+        "zone": "us-east-1a"
+      },
+      {
+        "service_name": "rewards-service",
+        "node_name": "node-2",
+        "zone": "us-east-1c"
+      },
+      {
+        "service_name": "web-bff",
+        "node_name": "node-1",
+        "zone": "us-east-1b"
+      }
+    ],
+    "total_cost": 52583638.0,
+    "latency_cost": 483608.0,
+    "resource_cost": 5210000.0,
+    "affinity_cost": 6.0,
+    "penalty_cost": 0.0,
+    "solver_name": "QIEA",
+    "solve_time_s": 0.24181074999796692,
+    "metadata": {}
+  },
+  "topology_name": "k8s-cluster",
+  "n_services": 20,
+  "n_nodes": 3
+}

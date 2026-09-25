@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring-agent
+  namespace: fintech
+  labels:
+    app: monitoring-agent
+    tier: observability
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: "clickhouse-analytics:2000,kafka-cluster:1200"
+    qubob.io/description: "Prometheus + Grafana agent — metrics scraping, alerting, SLO tracking, ML model serving"
+    qubob.io/anti-affinity: "card-vault"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: monitoring-agent
+        tier: observability
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: monitoring-agent
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: card-vault
+              topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: clickhouse-analytics
+                topologyKey: kubernetes.io/hostname
+            - weight: 75
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: kafka-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: monitoring-agent
+          image: fintech/monitoring-agent:2.1.0
+          ports:
+            - containerPort: 9090
+              name: prometheus
+            - containerPort: 3000
+              name: grafana
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1024Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2048Mi"
+          env:
+            - name: CLICKHOUSE_URL
+              value: "http://clickhouse-analytics:8123"
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: PROMETHEUS_RETENTION
+              value: "15d"
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-agent
+  namespace: fintech
+spec:
+  selector:
+    app: monitoring-agent
+  ports:
+    - name: prometheus
+      port: 9090
+      targetPort: 9090
+    - name: grafana
+      port: 3000
+      targetPort: 3000

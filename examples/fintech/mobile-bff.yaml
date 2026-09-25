@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mobile-bff
+  namespace: fintech
+  labels:
+    app: mobile-bff
+    tier: presentation
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: "account-ledger:3100,payment-switch:1200,notification-dispatcher:900,redis-session:4200"
+    qubob.io/description: "Mobile Backend-for-Frontend — optimised payloads for iOS/Android"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mobile-bff
+  template:
+    metadata:
+      labels:
+        app: mobile-bff
+        tier: presentation
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: mobile-bff
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis-session
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: mobile-bff
+          image: fintech/mobile-bff:1.5.2
+          ports:
+            - containerPort: 3001
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "512Mi"
+            limits:
+              cpu: "800m"
+              memory: "1024Mi"
+          env:
+            - name: SESSION_STORE_URL
+              value: "redis://redis-session:6379"
+            - name: ACCOUNT_SERVICE_URL
+              value: "http://account-ledger:8092"
+            - name: PAYMENT_SERVICE_URL
+              value: "http://payment-switch:8095"
+            - name: PUSH_SERVICE_URL
+              value: "http://notification-dispatcher:8098"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mobile-bff
+  namespace: fintech
+spec:
+  selector:
+    app: mobile-bff
+  ports:
+    - port: 3001
+      targetPort: 3001

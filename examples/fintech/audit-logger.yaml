@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-logger
+  namespace: fintech
+  labels:
+    app: audit-logger
+    tier: compliance
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "clickhouse-analytics:4500,kafka-cluster:3000"
+    qubob.io/description: "Immutable PCI-DSS audit trail — tamper-evident logs, SOX compliance, write-once storage"
+    qubob.io/pci-dss: "audit-trail-required"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: audit-logger
+  template:
+    metadata:
+      labels:
+        app: audit-logger
+        tier: compliance
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: audit-logger
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 95
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: clickhouse-analytics
+                topologyKey: kubernetes.io/hostname
+            - weight: 90
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: kafka-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: audit-logger
+          image: fintech/audit-logger:4.0.2
+          ports:
+            - containerPort: 8099
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1024Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2048Mi"
+          env:
+            - name: CLICKHOUSE_URL
+              value: "http://clickhouse-analytics:8123"
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: LOG_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: audit-secret
+                  key: encryption-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8099
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit-logger
+  namespace: fintech
+spec:
+  selector:
+    app: audit-logger
+  ports:
+    - port: 8099
+      targetPort: 8099

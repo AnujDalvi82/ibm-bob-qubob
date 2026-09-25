@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rewards-service
+  namespace: fintech
+  labels:
+    app: rewards-service
+    tier: engagement
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: "postgres-primary:700,clickhouse-analytics:1200,kafka-cluster:900,notification-dispatcher:500"
+    qubob.io/description: "Loyalty points engine — earn/burn rules, tier management, partner redemption catalogue"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rewards-service
+  template:
+    metadata:
+      labels:
+        app: rewards-service
+        tier: engagement
+    spec:
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: clickhouse-analytics
+                topologyKey: kubernetes.io/hostname
+            - weight: 70
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: kafka-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: rewards-service
+          image: fintech/rewards-service:2.4.1
+          ports:
+            - containerPort: 8097
+          resources:
+            requests:
+              cpu: "400m"
+              memory: "512Mi"
+            limits:
+              cpu: "800m"
+              memory: "1024Mi"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: CLICKHOUSE_URL
+              value: "http://clickhouse-analytics:8123"
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: NOTIFICATION_URL
+              value: "http://notification-dispatcher:8098"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8097
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rewards-service
+  namespace: fintech
+spec:
+  selector:
+    app: rewards-service
+  ports:
+    - port: 8097
+      targetPort: 8097

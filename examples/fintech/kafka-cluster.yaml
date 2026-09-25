@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-cluster
+  namespace: fintech
+  labels:
+    app: kafka-cluster
+    tier: infrastructure
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: ""
+    qubob.io/description: "Apache Kafka 3.7 cluster — event backbone for payment events, fraud signals, audit streams"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kafka-cluster
+  template:
+    metadata:
+      labels:
+        app: kafka-cluster
+        tier: infrastructure
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: kafka-cluster
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: kafka-cluster
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: kafka
+          image: confluentinc/cp-kafka:7.6.0
+          ports:
+            - containerPort: 9092
+              name: kafka
+            - containerPort: 9093
+              name: controller
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4096Mi"
+            limits:
+              cpu: "4000m"
+              memory: "8192Mi"
+          env:
+            - name: KAFKA_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: KAFKA_PROCESS_ROLES
+              value: "broker,controller"
+            - name: KAFKA_LOG_RETENTION_HOURS
+              value: "168"
+            - name: KAFKA_NUM_PARTITIONS
+              value: "12"
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-cluster
+  namespace: fintech
+spec:
+  selector:
+    app: kafka-cluster
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: 9092
+    - name: controller
+      port: 9093
+      targetPort: 9093

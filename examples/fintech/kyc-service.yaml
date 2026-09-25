@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kyc-service
+  namespace: fintech
+  labels:
+    app: kyc-service
+    tier: compliance
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "postgres-primary:850,audit-logger:700,notification-dispatcher:300"
+    qubob.io/description: "Know-Your-Customer document verification, AML screening, sanction list checks"
+    qubob.io/pci-dss: "data-classification-sensitive"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kyc-service
+  template:
+    metadata:
+      labels:
+        app: kyc-service
+        tier: compliance
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: kyc-service
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: postgres-primary
+                topologyKey: kubernetes.io/hostname
+            - weight: 75
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: audit-logger
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: kyc-service
+          image: fintech/kyc-service:2.0.3
+          ports:
+            - containerPort: 8091
+          resources:
+            requests:
+              cpu: "800m"
+              memory: "1024Mi"
+            limits:
+              cpu: "1600m"
+              memory: "2048Mi"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: AML_PROVIDER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kyc-secret
+                  key: aml-api-key
+            - name: AUDIT_SERVICE_URL
+              value: "http://audit-logger:8099"
+            - name: NOTIFICATION_URL
+              value: "http://notification-dispatcher:8098"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8091
+            initialDelaySeconds: 20
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kyc-service
+  namespace: fintech
+spec:
+  selector:
+    app: kyc-service
+  ports:
+    - port: 8091
+      targetPort: 8091

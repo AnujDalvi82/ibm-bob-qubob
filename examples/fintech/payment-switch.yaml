@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-switch
+  namespace: fintech
+  labels:
+    app: payment-switch
+    tier: core-banking
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: "fraud-detection:3500,card-vault:2800,account-ledger:2200,kafka-cluster:2000,audit-logger:1500"
+    qubob.io/description: "ISO 8583 payment switch — card authorisation, scheme routing (Visa/MC), settlement"
+    qubob.io/anti-affinity: "identity-auth"
+    qubob.io/pci-dss: "cardholder-data-environment"
+    qubob.io/critical-path: "fraud-detection"
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: payment-switch
+  template:
+    metadata:
+      labels:
+        app: payment-switch
+        tier: core-banking
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: payment-switch
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fraud-detection
+                topologyKey: kubernetes.io/hostname
+            - weight: 95
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: card-vault
+                topologyKey: kubernetes.io/hostname
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: kafka-cluster
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: identity-auth
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: payment-switch
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: payment-switch
+          image: fintech/payment-switch:8.1.4
+          ports:
+            - containerPort: 8095
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "4096Mi"
+            limits:
+              cpu: "4000m"
+              memory: "8192Mi"
+          env:
+            - name: FRAUD_SERVICE_URL
+              value: "http://fraud-detection:8096"
+            - name: CARD_VAULT_URL
+              value: "http://card-vault:8094"
+            - name: LEDGER_SERVICE_URL
+              value: "http://account-ledger:8092"
+            - name: KAFKA_BROKERS
+              value: "kafka-cluster:9092"
+            - name: VISA_GATEWAY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: payment-scheme-secret
+                  key: visa-key
+            - name: MASTERCARD_GATEWAY_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: payment-scheme-secret
+                  key: mc-key
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8095
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8095
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-switch
+  namespace: fintech
+spec:
+  selector:
+    app: payment-switch
+  ports:
+    - port: 8095
+      targetPort: 8095

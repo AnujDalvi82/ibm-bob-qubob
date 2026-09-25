@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-limiter
+  namespace: fintech
+  labels:
+    app: redis-limiter
+    tier: infrastructure
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: ""
+    qubob.io/description: "Redis 7 rate-limiting store — sliding-window counters, token bucket for API gateway"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-limiter
+  template:
+    metadata:
+      labels:
+        app: redis-limiter
+        tier: infrastructure
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: redis-limiter
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 95
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: api-gateway
+                topologyKey: kubernetes.io/hostname
+            - weight: 80
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fraud-detection
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: redis-limiter
+              topologyKey: kubernetes.io/hostname
+      containers:
+        - name: redis-limiter
+          image: redis:7.2-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1024Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2048Mi"
+          args:
+            - "--maxmemory"
+            - "1800mb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+            - "--save"
+            - ""
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-limiter
+  namespace: fintech
+spec:
+  selector:
+    app: redis-limiter
+  ports:
+    - port: 6379
+      targetPort: 6379

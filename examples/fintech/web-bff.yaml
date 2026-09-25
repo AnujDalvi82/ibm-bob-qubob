@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-bff
+  namespace: fintech
+  labels:
+    app: web-bff
+    tier: presentation
+    app.kubernetes.io/part-of: qubob-fintech-demo
+  annotations:
+    qubob.io/rpc-deps: "account-ledger:2200,payment-switch:800,rewards-service:600,redis-session:3500"
+    qubob.io/description: "Web Backend-for-Frontend — server-side rendering and session management"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web-bff
+  template:
+    metadata:
+      labels:
+        app: web-bff
+        tier: presentation
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: web-bff
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis-session
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 70
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: mobile-bff
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: web-bff
+          image: fintech/web-bff:2.8.4
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"
+          env:
+            - name: SESSION_STORE_URL
+              value: "redis://redis-session:6379"
+            - name: ACCOUNT_SERVICE_URL
+              value: "http://account-ledger:8092"
+            - name: PAYMENT_SERVICE_URL
+              value: "http://payment-switch:8095"
+            - name: REWARDS_SERVICE_URL
+              value: "http://rewards-service:8097"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-bff
+  namespace: fintech
+spec:
+  selector:
+    app: web-bff
+  ports:
+    - port: 3000
+      targetPort: 3000

@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-replica
+  namespace: fintech
+  labels:
+    app: postgres-replica
+    tier: data
+    app.kubernetes.io/part-of: qubob-fintech-demo
+    pci-scope: in-scope
+  annotations:
+    qubob.io/rpc-deps: ""
+    qubob.io/description: "PostgreSQL 16 read replica — handles analytics, reporting, fraud feature queries"
+    qubob.io/pci-dss: "cardholder-data-environment"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres-replica
+  template:
+    metadata:
+      labels:
+        app: postgres-replica
+        tier: data
+        pci-scope: in-scope
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: postgres-replica
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: postgres-primary
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: postgres-replica
+                topologyKey: topology.kubernetes.io/zone
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: fraud-detection
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: postgres-replica
+          image: postgres:16.3-alpine
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "4096Mi"
+            limits:
+              cpu: "3000m"
+              memory: "8192Mi"
+          env:
+            - name: POSTGRES_DB
+              value: "fintech"
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+            - name: PGDATA
+              value: "/var/lib/postgresql/data/pgdata"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - postgres
+            initialDelaySeconds: 30
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: fintech
+spec:
+  selector:
+    app: postgres-replica
+  ports:
+    - port: 5432
+      targetPort: 5432
