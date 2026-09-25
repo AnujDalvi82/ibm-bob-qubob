@@ -8,15 +8,31 @@ Serves a single-page HTML5/SVG/Canvas dashboard that visualises:
 
 All topology data and solver results are computed on the server side and
 delivered to the frontend as JSON via /api/topology and /api/benchmark.
+
+REST Action Endpoints (watsonx Orchestrate integration)
+-------------------------------------------------------
+POST /api/v1/analyze   — parse manifests, return topology + bottlenecks
+POST /api/v1/optimize  — run solver, return PlacementPlan + cost breakdown
+
+Cluster Registry
+----------------
+The QUBOB_CLUSTER_REGISTRY_JSON environment variable maps logical cluster_id
+strings to manifest paths (12-factor cloud best practice).  Raw filesystem
+paths are never exposed in API payloads.
+
+Built-in fallbacks (always available):
+  "demo"       → synthetic 10-service ecommerce topology
+  "ecommerce"  → examples/ecommerce/ directory (or synthetic if absent)
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -30,16 +46,156 @@ if str(_ROOT) not in sys.path:
 try:
     from fastapi import FastAPI
     from fastapi.responses import HTMLResponse, JSONResponse
+    from pydantic import BaseModel, Field
     import uvicorn  # type: ignore[import-untyped]
     _FASTAPI_AVAILABLE = True
 except ImportError:
     _FASTAPI_AVAILABLE = False
 
+from bob_optimizer.model.graph import build_latency_matrix
 from bob_optimizer.model.qubo import build_objective, decompose_cost
 from bob_optimizer.parser.synthetic_generator import _build_topology
 from bob_optimizer.solvers.baseline_ga import ClassicalGASolver
 from bob_optimizer.solvers.greedy import GreedyFFDSolver
 from bob_optimizer.solvers.qiea import QIEASolver
+
+# ---------------------------------------------------------------------------
+# Cluster Registry — maps logical cluster_id → manifest path
+# ---------------------------------------------------------------------------
+# 12-factor best practice: configure via QUBOB_CLUSTER_REGISTRY_JSON env var.
+# Raw filesystem paths are never exposed in API request/response payloads.
+#
+# Built-in fallbacks (always available without configuration):
+#   "demo"       → synthetic 10-service ecommerce topology (no manifests needed)
+#   "ecommerce"  → examples/ecommerce/ directory, or synthetic if absent
+# ---------------------------------------------------------------------------
+
+_EXAMPLES_DIR = _ROOT / "examples"
+
+_BUILTIN_REGISTRY: dict[str, str] = {
+    "demo": "__synthetic__",
+    "ecommerce": str(_EXAMPLES_DIR / "ecommerce"),
+}
+
+def _load_cluster_registry() -> dict[str, str]:
+    """Load cluster registry from env var, merged with built-in fallbacks."""
+    registry = dict(_BUILTIN_REGISTRY)
+    raw = os.environ.get("QUBOB_CLUSTER_REGISTRY_JSON", "")
+    if raw:
+        try:
+            user_registry = json.loads(raw)
+            if isinstance(user_registry, dict):
+                registry.update(user_registry)
+        except json.JSONDecodeError:
+            pass  # Malformed env var — silently fall back to built-ins
+    return registry
+
+
+CLUSTER_REGISTRY: dict[str, str] = _load_cluster_registry()
+
+
+# ---------------------------------------------------------------------------
+# REST API — Pydantic request / response models
+# ---------------------------------------------------------------------------
+# These models are only instantiated when FastAPI is available.  They use
+# string-literal annotations (from __future__ import annotations) so the
+# module can be imported even when pydantic is absent.
+# ---------------------------------------------------------------------------
+
+if _FASTAPI_AVAILABLE:
+    class AnalyzeRequest(BaseModel):  # type: ignore[misc]
+        cluster_id: str = Field(..., description="Logical cluster name registered on this server")
+        manifest_type: Literal["auto", "kubernetes", "compose"] = Field(
+            "auto", description="Manifest format hint"
+        )
+
+    class BottleneckEdge(BaseModel):  # type: ignore[misc]
+        source: str
+        target: str
+        calls_per_second: float
+        protocol: str
+
+    class AnalyzeResponse(BaseModel):  # type: ignore[misc]
+        cluster_id: str
+        n_services: int
+        n_nodes: int
+        n_dependencies: int
+        bottlenecks: list[BottleneckEdge]
+        latency_matrix: list[list[float]]
+
+    class ServiceAssignmentOut(BaseModel):  # type: ignore[misc]
+        service_name: str
+        node_name: str
+        zone: str
+
+    class OptimizeRequest(BaseModel):  # type: ignore[misc]
+        cluster_id: str = Field(..., description="Logical cluster name registered on this server")
+        algorithm: Literal["qiea", "ga", "greedy"] = Field(
+            "greedy", description="Solver algorithm"
+        )
+        generations: int = Field(200, ge=1, description="Iteration budget for qiea/ga")
+        seed: int = Field(42, description="RNG seed for reproducibility")
+
+    class OptimizeResponse(BaseModel):  # type: ignore[misc]
+        cluster_id: str
+        solver_name: str
+        solve_time_s: float
+        latency_reduction_pct: float
+        total_cost: float
+        latency_cost: float
+        resource_cost: float
+        affinity_cost: float
+        penalty_cost: float
+        is_feasible: bool
+        assignments: list[ServiceAssignmentOut]
+
+
+# ---------------------------------------------------------------------------
+# Cluster resolution helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_cluster(cluster_id: str) -> Any | None:
+    """Return a ClusterTopology for *cluster_id*, or None if not registered."""
+    from bob_optimizer.model.domain import ClusterTopology  # noqa: PLC0415
+
+    path_str = CLUSTER_REGISTRY.get(cluster_id)
+    if path_str is None:
+        return None
+
+    if path_str == "__synthetic__":
+        return _build_topology("ecommerce-demo", n_services=10, n_nodes=3, seed=7)
+
+    # Real manifest path
+    p = Path(path_str)
+    if not p.exists():
+        # Path registered but missing — fall back to synthetic for registered name
+        return _build_topology(cluster_id, n_services=10, n_nodes=3, seed=7)
+
+    # Detect compose vs k8s
+    from bob_optimizer.cli.main import (  # noqa: PLC0415
+        _collect_manifest_paths,
+        _inject_demo_nodes,
+        _parse_topology,
+    )
+
+    try:
+        paths, is_compose = _collect_manifest_paths(str(p))
+        topology = _parse_topology(paths, is_compose)
+        return _inject_demo_nodes(topology)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _get_solver_instance(algorithm: str, generations: int) -> Any:
+    """Return a configured solver instance."""
+    algo = algorithm.lower()
+    if algo == "qiea":
+        return QIEASolver(n_generations=generations)
+    if algo == "ga":
+        return ClassicalGASolver(n_generations=generations)
+    return GreedyFFDSolver()
+
 
 # ---------------------------------------------------------------------------
 # Build demo topology (ecommerce-like 10-service cluster)
@@ -609,22 +765,183 @@ window.addEventListener('resize', () => {
 
 
 def create_app() -> "FastAPI":
-    """Create and configure the FastAPI dashboard application."""
+    """Create and configure the FastAPI dashboard application.
+
+    Routes
+    ------
+    GET  /                    — Interactive HTML dashboard
+    GET  /api/topology        — Demo topology + pre-computed solver results (JSON)
+    POST /api/v1/analyze      — Parse manifests for cluster_id; return topology summary
+    POST /api/v1/optimize     — Run solver for cluster_id; return PlacementPlan
+    GET  /openapi.json        — OpenAPI 3.0 schema (auto-generated by FastAPI)
+    """
     if not _FASTAPI_AVAILABLE:
         raise RuntimeError(
             "FastAPI and uvicorn are required for the dashboard. "
             "Install them with: pip install fastapi uvicorn"
         )
 
-    app = FastAPI(title="QUBOB Dashboard", version="0.1.0")
+    app = FastAPI(
+        title="QUBOB Placement Optimization API",
+        version="1.0.0",
+        description=(
+            "Quantum-Inspired microservice placement optimizer. "
+            "Exposes analyze and optimize as autonomous actions for "
+            "watsonx Orchestrate and watsonx Assistant."
+        ),
+    )
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index() -> HTMLResponse:
         return HTMLResponse(content=_DASHBOARD_HTML)
 
-    @app.get("/api/topology")
+    @app.get("/api/topology", include_in_schema=False)
     async def topology() -> JSONResponse:
         return JSONResponse(content=_topology_json())
+
+    # ------------------------------------------------------------------
+    # POST /api/v1/analyze
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/api/v1/analyze",
+        response_model=AnalyzeResponse,  # type: ignore[name-defined]
+        operation_id="qubob_analyze",
+        summary="Analyze Kubernetes or Docker Compose manifests",
+        tags=["Analysis"],
+    )
+    async def api_analyze(
+        request: AnalyzeRequest,  # type: ignore[name-defined]
+    ) -> AnalyzeResponse:  # type: ignore[name-defined]
+        """Parse manifests for *cluster_id* and return topology + bottlenecks."""
+        from fastapi import HTTPException  # noqa: PLC0415
+
+        topology_obj = _resolve_cluster(request.cluster_id)
+        if topology_obj is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"cluster_id '{request.cluster_id}' is not registered on this server.",
+            )
+
+        # Build latency matrix
+        lat_mat = build_latency_matrix(topology_obj)
+        lat_list: list[list[float]] = lat_mat.tolist()
+
+        # Top-5 bottleneck edges by RPS
+        sorted_deps = sorted(
+            topology_obj.dependencies,
+            key=lambda d: d.calls_per_second,
+            reverse=True,
+        )[:5]
+        bottlenecks = [
+            BottleneckEdge(  # type: ignore[name-defined]
+                source=d.source,
+                target=d.target,
+                calls_per_second=d.calls_per_second,
+                protocol=d.protocol,
+            )
+            for d in sorted_deps
+        ]
+
+        return AnalyzeResponse(  # type: ignore[name-defined]
+            cluster_id=request.cluster_id,
+            n_services=topology_obj.n_services,
+            n_nodes=topology_obj.n_nodes,
+            n_dependencies=len(topology_obj.dependencies),
+            bottlenecks=bottlenecks,
+            latency_matrix=lat_list,
+        )
+
+    # ------------------------------------------------------------------
+    # POST /api/v1/optimize
+    # ------------------------------------------------------------------
+
+    @app.post(
+        "/api/v1/optimize",
+        response_model=OptimizeResponse,  # type: ignore[name-defined]
+        operation_id="qubob_optimize",
+        summary="Run quantum-inspired placement optimizer",
+        tags=["Optimization"],
+    )
+    async def api_optimize(
+        request: OptimizeRequest,  # type: ignore[name-defined]
+    ) -> OptimizeResponse:  # type: ignore[name-defined]
+        """Run solver for *cluster_id* and return the optimal PlacementPlan."""
+        from fastapi import HTTPException  # noqa: PLC0415
+
+        topology_obj = _resolve_cluster(request.cluster_id)
+        if topology_obj is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"cluster_id '{request.cluster_id}' is not registered on this server.",
+            )
+
+        objective = build_objective(topology_obj)
+        solver = _get_solver_instance(request.algorithm, request.generations)
+
+        solver_kwargs: dict[str, Any] = {"seed": request.seed}
+        if request.algorithm in {"qiea", "ga"}:
+            solver_kwargs["n_generations"] = request.generations
+
+        t0 = time.perf_counter()
+        try:
+            result = solver.solve(
+                objective,
+                topology_obj.n_variables,
+                topology_obj.n_nodes,
+                **solver_kwargs,
+            )
+        except TypeError:
+            result = solver.solve(
+                objective,
+                topology_obj.n_variables,
+                topology_obj.n_nodes,
+                seed=request.seed,
+            )
+        elapsed = time.perf_counter() - t0
+
+        cost_components = decompose_cost(topology_obj, result.best_solution)
+
+        # Build assignments list
+        n_nodes = topology_obj.n_nodes
+        assignments = []
+        for i, svc in enumerate(topology_obj.services):
+            row = result.best_solution[i * n_nodes : (i + 1) * n_nodes]
+            j = int(np.argmax(row)) if row.any() else 0
+            node = topology_obj.nodes[j]
+            assignments.append(
+                ServiceAssignmentOut(  # type: ignore[name-defined]
+                    service_name=svc.name,
+                    node_name=node.name,
+                    zone=node.zone,
+                )
+            )
+
+        # Latency reduction vs naive baseline (all on node-0)
+        naive_x = np.zeros(topology_obj.n_variables, dtype=np.float64)
+        for i in range(topology_obj.n_services):
+            naive_x[i * n_nodes] = 1.0
+        naive_cost = decompose_cost(topology_obj, naive_x)
+        if naive_cost["total"] > 0:
+            reduction_pct = 100.0 * (naive_cost["total"] - cost_components["total"]) / naive_cost["total"]
+        else:
+            reduction_pct = 0.0
+
+        total_cost = cost_components["total"]
+
+        return OptimizeResponse(  # type: ignore[name-defined]
+            cluster_id=request.cluster_id,
+            solver_name=request.algorithm.upper(),
+            solve_time_s=round(elapsed, 4),
+            latency_reduction_pct=round(reduction_pct, 2),
+            total_cost=total_cost,
+            latency_cost=cost_components["latency"],
+            resource_cost=cost_components["resource"],
+            affinity_cost=cost_components["affinity"],
+            penalty_cost=cost_components["penalty"],
+            is_feasible=abs(cost_components["penalty"]) < 1e-6,
+            assignments=assignments,
+        )
 
     return app
 

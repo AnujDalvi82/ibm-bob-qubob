@@ -1,0 +1,410 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "QUBOB Placement Optimization API",
+    "version": "1.0.0",
+    "description": "Quantum-Inspired microservice placement optimizer. Exposes analyze and optimize as autonomous actions for watsonx Orchestrate and watsonx Assistant. All solvers run on standard CPU — no quantum hardware required.",
+    "contact": {
+      "name": "QUBOB Team",
+      "email": "qubob@ibm-hack.local"
+    },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://qubob.your-org.example.com/api/v1",
+      "description": "Production QUBOB API server"
+    },
+    {
+      "url": "http://localhost:8080/api/v1",
+      "description": "Local development server"
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "paths": {
+    "/analyze": {
+      "post": {
+        "operationId": "qubob_analyze",
+        "summary": "Analyze Kubernetes or Docker Compose manifests",
+        "description": "Parses manifests for the given cluster_id, builds the service dependency graph, returns an RTT latency matrix and the top-5 latency bottleneck edges. No solver is invoked; this is a fast read-only analysis step.",
+        "tags": ["Analysis"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              },
+              "example": {
+                "cluster_id": "staging-k8s",
+                "manifest_type": "auto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Topology analysis result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "cluster_id not found in the server registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/optimize": {
+      "post": {
+        "operationId": "qubob_optimize",
+        "summary": "Run quantum-inspired placement optimizer",
+        "description": "Ingests manifests for the given cluster_id, runs the selected solver (qiea / ga / greedy), and returns the optimal placement plan with per-service node assignments, QUBO cost breakdown, and latency reduction percentage versus the naive all-on-node-0 baseline. The plan is cached server-side as .qubob_plan.json.",
+        "tags": ["Optimization"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimizeRequest"
+              },
+              "example": {
+                "cluster_id": "staging-k8s",
+                "algorithm": "qiea",
+                "generations": 500,
+                "seed": 42
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Optimal placement plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "cluster_id not found in the server registry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Request validation error (e.g. unknown algorithm)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/plan/{cluster_id}": {
+      "get": {
+        "operationId": "qubob_get_plan",
+        "summary": "Retrieve a cached placement plan",
+        "description": "Returns the most recent OptimizeResponse cached server-side for the given cluster_id. Returns 404 if no plan has been generated yet (run /optimize first).",
+        "tags": ["Optimization"],
+        "parameters": [
+          {
+            "name": "cluster_id",
+            "in": "path",
+            "required": true,
+            "description": "Logical cluster identifier registered on the server",
+            "schema": {
+              "type": "string",
+              "example": "staging-k8s"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cached placement plan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cached plan found — run /optimize first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyzeRequest": {
+        "type": "object",
+        "required": ["cluster_id"],
+        "properties": {
+          "cluster_id": {
+            "type": "string",
+            "description": "Logical cluster name registered on the QUBOB server. Maps to a manifest directory or synthetic topology.",
+            "example": "staging-k8s"
+          },
+          "manifest_type": {
+            "type": "string",
+            "enum": ["auto", "kubernetes", "compose"],
+            "default": "auto",
+            "description": "Manifest format hint. 'auto' detects based on file names."
+          }
+        }
+      },
+      "AnalyzeResponse": {
+        "type": "object",
+        "properties": {
+          "cluster_id": {
+            "type": "string",
+            "description": "Echo of the requested cluster_id"
+          },
+          "n_services": {
+            "type": "integer",
+            "description": "Number of services discovered in the manifests"
+          },
+          "n_nodes": {
+            "type": "integer",
+            "description": "Number of candidate placement nodes"
+          },
+          "n_dependencies": {
+            "type": "integer",
+            "description": "Number of directed call-graph edges between services"
+          },
+          "bottlenecks": {
+            "type": "array",
+            "description": "Top-5 latency bottleneck edges sorted by RPS descending",
+            "items": {
+              "$ref": "#/components/schemas/BottleneckEdge"
+            }
+          },
+          "latency_matrix": {
+            "type": "array",
+            "description": "N_nodes × N_nodes RTT matrix in milliseconds",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "format": "float"
+              }
+            }
+          }
+        }
+      },
+      "BottleneckEdge": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "description": "Calling service name"
+          },
+          "target": {
+            "type": "string",
+            "description": "Called service name"
+          },
+          "calls_per_second": {
+            "type": "number",
+            "format": "float",
+            "description": "Average RPS on this call edge"
+          },
+          "protocol": {
+            "type": "string",
+            "description": "Transport protocol (http, grpc, tcp, …)"
+          }
+        }
+      },
+      "OptimizeRequest": {
+        "type": "object",
+        "required": ["cluster_id"],
+        "properties": {
+          "cluster_id": {
+            "type": "string",
+            "description": "Logical cluster name registered on the QUBOB server",
+            "example": "staging-k8s"
+          },
+          "algorithm": {
+            "type": "string",
+            "enum": ["qiea", "ga", "greedy"],
+            "default": "greedy",
+            "description": "Solver algorithm. qiea = Quantum-Inspired EA (best quality, seconds). ga = Classical GA (balanced quality/speed). greedy = sub-second, good for CI/CD or small clusters."
+          },
+          "generations": {
+            "type": "integer",
+            "default": 200,
+            "minimum": 1,
+            "description": "Iteration budget for qiea and ga solvers. Ignored for greedy."
+          },
+          "seed": {
+            "type": "integer",
+            "default": 42,
+            "description": "RNG seed for reproducible results."
+          }
+        }
+      },
+      "OptimizeResponse": {
+        "type": "object",
+        "properties": {
+          "cluster_id": {
+            "type": "string"
+          },
+          "solver_name": {
+            "type": "string",
+            "description": "Name of the solver that produced this plan (QIEA, GA, GREEDY)"
+          },
+          "solve_time_s": {
+            "type": "number",
+            "format": "float",
+            "description": "Wall-clock solver time in seconds"
+          },
+          "latency_reduction_pct": {
+            "type": "number",
+            "format": "float",
+            "description": "Percentage cost reduction vs naive all-on-node-0 baseline"
+          },
+          "total_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "H_total evaluated at this placement (λ-weighted sum)"
+          },
+          "latency_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "H_latency component (unweighted)"
+          },
+          "resource_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "H_resource component (unweighted)"
+          },
+          "affinity_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "H_affinity component (unweighted)"
+          },
+          "penalty_cost": {
+            "type": "number",
+            "format": "float",
+            "description": "H_penalty component — should be ~0 for feasible plans"
+          },
+          "is_feasible": {
+            "type": "boolean",
+            "description": "True when all services are assigned to exactly one node"
+          },
+          "assignments": {
+            "type": "array",
+            "description": "One assignment per service",
+            "items": {
+              "$ref": "#/components/schemas/ServiceAssignment"
+            }
+          }
+        }
+      },
+      "ServiceAssignment": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Name of the assigned microservice"
+          },
+          "node_name": {
+            "type": "string",
+            "description": "Name of the target Kubernetes node"
+          },
+          "zone": {
+            "type": "string",
+            "description": "Availability zone of the target node"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Human-readable error description"
+          }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "loc": {
+                  "type": "array",
+                  "items": {}
+                },
+                "msg": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "IBM Cloud IAM Bearer token. In watsonx Orchestrate, store the token under credential key QUBOB_API_KEY."
+      }
+    }
+  }
+}

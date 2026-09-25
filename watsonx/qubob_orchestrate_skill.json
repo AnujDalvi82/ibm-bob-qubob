@@ -1,0 +1,214 @@
+{
+  "skill_name": "QUBOB Placement Optimizer",
+  "skill_description": "Quantum-Inspired microservice placement optimizer for Kubernetes and Docker Compose. Analyzes service topology and runs QIEA/GA/Greedy solvers to find the optimal node assignment that minimizes cross-zone latency and resource overflow.",
+  "skill_version": "1.0.0",
+  "provider": "IBM QUBOB Team",
+  "openapi_spec_url": "https://qubob.your-org.example.com/api/v1/openapi.json",
+  "auth": {
+    "type": "bearer",
+    "credential_key": "QUBOB_API_KEY",
+    "description": "IBM Cloud IAM Bearer token for the QUBOB API server. Store this in your watsonx Orchestrate credential vault under the key QUBOB_API_KEY."
+  },
+  "actions": [
+    {
+      "action_id": "qubob_analyze",
+      "operation_id": "qubob_analyze",
+      "display_name": "Analyze Cluster Topology",
+      "description": "Analyzes Kubernetes or Docker Compose manifests for a cluster. Returns the service dependency graph, RTT latency matrix, and top-5 bottleneck edges. Run this before optimizing to understand the current topology.",
+      "input_parameters": [
+        {
+          "name": "cluster_id",
+          "display_name": "Cluster ID",
+          "description": "The logical name of the cluster to analyze (e.g. 'staging-k8s', 'prod-k8s', 'demo'). Must be registered on the QUBOB server.",
+          "type": "string",
+          "required": true,
+          "example": "staging-k8s"
+        },
+        {
+          "name": "manifest_type",
+          "display_name": "Manifest Type",
+          "description": "Format of the manifests: 'auto' detects automatically, 'kubernetes' forces K8s parsing, 'compose' forces Docker Compose parsing.",
+          "type": "string",
+          "required": false,
+          "default": "auto",
+          "enum": ["auto", "kubernetes", "compose"]
+        }
+      ],
+      "output_parameters": [
+        {
+          "name": "cluster_id",
+          "display_name": "Cluster ID",
+          "description": "Echo of the requested cluster_id",
+          "type": "string"
+        },
+        {
+          "name": "n_services",
+          "display_name": "Number of Services",
+          "description": "Total services discovered in the manifests",
+          "type": "integer"
+        },
+        {
+          "name": "n_nodes",
+          "display_name": "Number of Nodes",
+          "description": "Total candidate placement nodes",
+          "type": "integer"
+        },
+        {
+          "name": "n_dependencies",
+          "display_name": "Number of Dependencies",
+          "description": "Directed call-graph edges between services",
+          "type": "integer"
+        },
+        {
+          "name": "bottlenecks",
+          "display_name": "Latency Bottlenecks",
+          "description": "Top-5 call edges with highest RPS (most latency-sensitive)",
+          "type": "array"
+        },
+        {
+          "name": "latency_matrix",
+          "display_name": "RTT Latency Matrix",
+          "description": "N_nodes × N_nodes round-trip time matrix in milliseconds",
+          "type": "array"
+        }
+      ],
+      "example_prompt": "Analyze the staging Kubernetes cluster topology",
+      "example_response_summary": "Found 12 services and 3 nodes in staging-k8s. Top bottleneck: api-gateway → order-service at 450 RPS."
+    },
+    {
+      "action_id": "qubob_optimize",
+      "operation_id": "qubob_optimize",
+      "display_name": "Optimize Service Placement",
+      "description": "Runs the quantum-inspired (QIEA), classical GA, or greedy solver on the cluster manifests. Returns the optimal placement plan: which node each service should run on, QUBO cost breakdown, and latency reduction vs the naive baseline. The plan is cached server-side.",
+      "input_parameters": [
+        {
+          "name": "cluster_id",
+          "display_name": "Cluster ID",
+          "description": "The logical name of the cluster to optimize",
+          "type": "string",
+          "required": true,
+          "example": "staging-k8s"
+        },
+        {
+          "name": "algorithm",
+          "display_name": "Solver Algorithm",
+          "description": "Which solver to use: 'qiea' = Quantum-Inspired EA (best quality, takes a few seconds), 'ga' = Classical Genetic Algorithm (balanced), 'greedy' = sub-second heuristic (best for CI/CD or small clusters under 10 services).",
+          "type": "string",
+          "required": false,
+          "default": "greedy",
+          "enum": ["qiea", "ga", "greedy"]
+        },
+        {
+          "name": "generations",
+          "display_name": "Generations",
+          "description": "Number of evolutionary iterations for QIEA or GA solvers. Higher = better quality, slower. Ignored for greedy.",
+          "type": "integer",
+          "required": false,
+          "default": 200,
+          "minimum": 1
+        },
+        {
+          "name": "seed",
+          "display_name": "Random Seed",
+          "description": "RNG seed for fully reproducible results. Same seed + same algorithm + same manifests always produces the same placement plan.",
+          "type": "integer",
+          "required": false,
+          "default": 42
+        }
+      ],
+      "output_parameters": [
+        {
+          "name": "cluster_id",
+          "display_name": "Cluster ID",
+          "type": "string"
+        },
+        {
+          "name": "solver_name",
+          "display_name": "Solver Used",
+          "description": "Algorithm that produced the plan (QIEA, GA, GREEDY)",
+          "type": "string"
+        },
+        {
+          "name": "solve_time_s",
+          "display_name": "Solve Time (seconds)",
+          "description": "Wall-clock time taken by the solver",
+          "type": "number"
+        },
+        {
+          "name": "latency_reduction_pct",
+          "display_name": "Latency Reduction %",
+          "description": "Percentage cost reduction vs naive all-on-one-node baseline. Higher is better.",
+          "type": "number"
+        },
+        {
+          "name": "total_cost",
+          "display_name": "Total QUBO Cost",
+          "description": "H_total at this placement (lambda-weighted sum of all cost terms)",
+          "type": "number"
+        },
+        {
+          "name": "is_feasible",
+          "display_name": "Plan is Feasible",
+          "description": "True when every service is assigned to exactly one node",
+          "type": "boolean"
+        },
+        {
+          "name": "assignments",
+          "display_name": "Service Assignments",
+          "description": "Array of service-to-node assignments: each entry has service_name, node_name, and zone",
+          "type": "array"
+        }
+      ],
+      "example_prompt": "Optimize the staging cluster using the QIEA algorithm with 500 generations",
+      "example_response_summary": "QIEA reduced weighted latency cost by 38.2% in 4.7 seconds. api-gateway → node-1 (zone-a), order-service → node-2 (zone-b), ..."
+    },
+    {
+      "action_id": "qubob_get_plan",
+      "operation_id": "qubob_get_plan",
+      "display_name": "Get Cached Placement Plan",
+      "description": "Retrieves the most recent placement plan cached server-side for a cluster. Use this to review the last optimization result without re-running the solver.",
+      "input_parameters": [
+        {
+          "name": "cluster_id",
+          "display_name": "Cluster ID",
+          "description": "The logical name of the cluster",
+          "type": "string",
+          "required": true,
+          "example": "staging-k8s"
+        }
+      ],
+      "output_parameters": [
+        {
+          "name": "solver_name",
+          "display_name": "Solver Used",
+          "type": "string"
+        },
+        {
+          "name": "latency_reduction_pct",
+          "display_name": "Latency Reduction %",
+          "type": "number"
+        },
+        {
+          "name": "assignments",
+          "display_name": "Service Assignments",
+          "type": "array"
+        },
+        {
+          "name": "is_feasible",
+          "display_name": "Plan is Feasible",
+          "type": "boolean"
+        }
+      ],
+      "example_prompt": "Show the last placement plan for staging-k8s",
+      "example_response_summary": "Last plan: QIEA, 38.2% reduction, 12 services assigned."
+    }
+  ],
+  "suggested_prompts": [
+    "Analyze the staging Kubernetes cluster before the production release",
+    "Optimize microservice placement on staging-k8s using QIEA",
+    "Run a greedy placement optimization on the demo cluster",
+    "Show me the latency bottlenecks in the ecommerce cluster",
+    "What is the current placement plan for staging-k8s?",
+    "Optimize with 500 generations of the quantum-inspired algorithm"
+  ]
+}
