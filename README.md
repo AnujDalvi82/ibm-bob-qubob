@@ -858,7 +858,7 @@ Apache License 2.0 — see [LICENSE](LICENSE).
 
 <div align="center">
 
-Built with ❤️ for the <strong>IBM Bob Hackathon 2025</strong><br>
+Built with ❤️ for the <strong>IBM Bob 2.0 Hackathon 2026</strong><br>
 Quantum-inspired algorithms · zero quantum hardware required · <strong>0.39 MiB peak RAM</strong>
 
 </div>
