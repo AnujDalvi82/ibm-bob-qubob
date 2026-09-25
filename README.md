@@ -890,6 +890,17 @@ mypy bob_optimizer/ --strict
 
 ---
 
+## 👥 Contributors & Acknowledgements
+
+| Contributor | Role | Contributions |
+| :--- | :--- | :--- |
+| **Anuj Dalvi** | **Lead Architect & Developer** | Problem formulation, system direction, FinTech domain architecture, video presentation |
+| **IBM Bob 2.0** 🤖 | **Autonomous AI Pair Programmer** | QIEA solver implementation, zero-loop QUBO engine, Kubernetes patch generator, 228-test suite, watsonx OpenAPI integration |
+
+> *"Built with purpose using IBM Bob 2.0. This project demonstrates true human-AI collaboration—orchestrating complex distributed systems math, automated verification, and cloud-native Kubernetes patching in a single developer loop."*
+
+---
+
 ## 📄 License
 
 Apache License 2.0 — see [LICENSE](LICENSE).
