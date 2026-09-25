@@ -286,6 +286,46 @@ terminal.
 
 ## 🏛️ Architecture Overview
 
+```mermaid
+flowchart TD
+    subgraph Ingestion ["1. Manifest & Topology Ingestion"]
+        K8s["Kubernetes Manifests<br/>(Deployments, StatefulSets, Services)"]
+        Compose["Docker Compose<br/>(docker-compose.yml)"]
+        Synth["Synthetic Benchmark Generator<br/>(8 to 64 Services)"]
+    end
+
+    subgraph Modeling ["2. Graph & QUBO Modeling Engine"]
+        Graph["Service Dependency Graph<br/>(NetworkX G=V,E with RPS Weights)"]
+        RTT["Node RTT Latency Matrix<br/>(0.1ms Loopback · 1.5ms Zone · 8.0ms Cross-AZ)"]
+        QUBO["Zero-Loop Vectorized QUBO Closure<br/>H_total = λ_lat·H_lat + λ_res·H_res + λ_aff·H_aff + λ_pen·H_pen"]
+    end
+
+    subgraph Solvers ["3. Quantum-Inspired Solver Engine"]
+        QIEA["QIEA Solver ★<br/>Q-bits [α, β]ᵀ · Dynamic Rotation Gates U(Δθ)<br/>Pauli-X σ_x Tunneling Catastrophe Operator"]
+        GA["Classical Genetic Algorithm<br/>(Two-Point Crossover & Bit-Flip Mutation)"]
+        Greedy["Greedy FFD Baseline<br/>(Resource Bin-Packing Heuristic)"]
+    end
+
+    subgraph Delivery ["4. Developer Experience & Ecosystem"]
+        Diff["Manifest Patch & Diff Engine<br/>(nodeAffinity · topologySpreadConstraints · .bak)"]
+        CLI["bob-opt CLI & demo.sh<br/>(analyze · optimize · diff · apply)"]
+        Dash["Interactive Visual Dashboard<br/>(FastAPI · SVG Graph · Latency Heatmap)"]
+        Watson["IBM watsonx Orchestrate<br/>(OpenAPI 3.0.3 Enterprise REST API)"]
+        Skill["IBM Bob Native Skill<br/>(skills/qubob/SKILL.md)"]
+    end
+
+    Ingestion --> Modeling
+    Modeling --> Solvers
+    Solvers --> Delivery
+
+    classDef primary fill:#0f62fe,stroke:#11d3f3,stroke-width:2px,color:#fff;
+    classDef accent fill:#111827,stroke:#3b82f6,stroke-width:1px,color:#e2e8f0;
+    class QIEA primary;
+    class K8s,Compose,Synth,Graph,RTT,QUBO,GA,Greedy,Diff,CLI,Dash,Watson,Skill accent;
+```
+
+> **Text-mode fallback** (widen terminal to render the Mermaid diagram inline):
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         IBM Bob IDE (Skill)                         │
