@@ -534,6 +534,28 @@ def optimise(manifest: str, solver: str, output: str) -> None:
     ctx.invoke(optimize, path=manifest, algorithm=solver, generations=200, seed=42)
 
 
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Bind host.")
+@click.option("--port", default=8080, show_default=True, type=int, help="Bind port.")
+@click.option("--no-browser", is_flag=True, default=False, help="Do not open browser.")
+def dashboard(host: str, port: int, no_browser: bool) -> None:
+    """Launch the interactive visual dashboard in the browser."""
+    console.print(
+        Panel(
+            f"[bold cyan]QUBOB Dashboard[/bold cyan]\n"
+            f"[dim]http://{host}:{port}[/dim]",
+            expand=False,
+        )
+    )
+    try:
+        from bob_optimizer.dashboard.app import run_dashboard
+    except ImportError as exc:
+        console.print(f"[red]Dashboard dependencies missing:[/red] {exc}")
+        console.print("Install with: [bold]pip install fastapi uvicorn[/bold]")
+        raise SystemExit(1)
+    run_dashboard(host=host, port=port, open_browser=not no_browser)
+
+
 @cli.command(hidden=True)
 @click.argument("service_name")
 def explain(service_name: str) -> None:

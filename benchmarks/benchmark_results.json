@@ -1,0 +1,92 @@
+[
+  {
+    "topology": "Small (8\u00d73)",
+    "solver": "QIEA",
+    "best_cost": 0.0,
+    "latency_cost": 0.0,
+    "latency_reduction_pct": 0.0,
+    "convergence_iterations": 100,
+    "solve_time_s": 0.8823,
+    "memory_peak_mib": 0.04
+  },
+  {
+    "topology": "Small (8\u00d73)",
+    "solver": "Classical GA",
+    "best_cost": 939.72,
+    "latency_cost": 939.72,
+    "latency_reduction_pct": 0.0,
+    "convergence_iterations": 100,
+    "solve_time_s": 0.8998,
+    "memory_peak_mib": 0.02
+  },
+  {
+    "topology": "Small (8\u00d73)",
+    "solver": "Greedy FFD",
+    "best_cost": 0.0,
+    "latency_cost": 0.0,
+    "latency_reduction_pct": 0.0,
+    "convergence_iterations": 1,
+    "solve_time_s": 0.0003,
+    "memory_peak_mib": 0.01
+  },
+  {
+    "topology": "Medium (24\u00d76)",
+    "solver": "QIEA",
+    "best_cost": 396.4095,
+    "latency_cost": 396.4095,
+    "latency_reduction_pct": 100.0,
+    "convergence_iterations": 150,
+    "solve_time_s": 5.5811,
+    "memory_peak_mib": 0.1
+  },
+  {
+    "topology": "Medium (24\u00d76)",
+    "solver": "Classical GA",
+    "best_cost": 1560.0285,
+    "latency_cost": 1560.0285,
+    "latency_reduction_pct": 100.0,
+    "convergence_iterations": 150,
+    "solve_time_s": 1.5451,
+    "memory_peak_mib": 0.05
+  },
+  {
+    "topology": "Medium (24\u00d76)",
+    "solver": "Greedy FFD",
+    "best_cost": 483164010.0,
+    "latency_cost": 0.0,
+    "latency_reduction_pct": 0.0,
+    "convergence_iterations": 1,
+    "solve_time_s": 0.0005,
+    "memory_peak_mib": 0.01
+  },
+  {
+    "topology": "Enterprise (64\u00d712)",
+    "solver": "QIEA",
+    "best_cost": 31696.5725,
+    "latency_cost": 31696.5725,
+    "latency_reduction_pct": 100.0,
+    "convergence_iterations": 200,
+    "solve_time_s": 19.8468,
+    "memory_peak_mib": 0.39
+  },
+  {
+    "topology": "Enterprise (64\u00d712)",
+    "solver": "Classical GA",
+    "best_cost": 5536.5095,
+    "latency_cost": 5536.5095,
+    "latency_reduction_pct": 100.0,
+    "convergence_iterations": 200,
+    "solve_time_s": 3.9552,
+    "memory_peak_mib": 0.16
+  },
+  {
+    "topology": "Enterprise (64\u00d712)",
+    "solver": "Greedy FFD",
+    "best_cost": 27079534440.0,
+    "latency_cost": 0.0,
+    "latency_reduction_pct": 0.0,
+    "convergence_iterations": 1,
+    "solve_time_s": 0.0011,
+    "memory_peak_mib": 0.07
+  }
+]

@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics
+  namespace: ecommerce
+  labels:
+    app: analytics
+    tier: platform
+    app.kubernetes.io/part-of: qubob-demo
+  annotations:
+    qubob.io/rpc-deps: "postgres:250,redis:150"
+    qubob.io/description: "Real-time analytics aggregator — low-priority background worker"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics
+  template:
+    metadata:
+      labels:
+        app: analytics
+        tier: platform
+    spec:
+      # Analytics is a background workload — allow it to be scheduled
+      # on any zone without hard placement constraints.
+      priorityClassName: ""
+      containers:
+        - name: analytics
+          image: ecommerce/analytics:0.8.5
+          ports:
+            - containerPort: 9090
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "600m"
+              memory: "1Gi"
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            - name: AGGREGATION_INTERVAL_S
+              value: "30"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 15
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: analytics
+  namespace: ecommerce
+spec:
+  selector:
+    app: analytics
+  ports:
+    - port: 9090
+      targetPort: 9090

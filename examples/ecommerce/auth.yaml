@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth
+  namespace: ecommerce
+  labels:
+    app: auth
+    tier: platform
+    app.kubernetes.io/part-of: qubob-demo
+  annotations:
+    qubob.io/rpc-deps: "redis:1800,postgres:200"
+    qubob.io/description: "JWT authentication & session management — Redis token cache"
+    qubob.io/anti-affinity: "payment"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth
+  template:
+    metadata:
+      labels:
+        app: auth
+        tier: platform
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: payment
+              topologyKey: kubernetes.io/hostname
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 85
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: redis
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: auth
+          image: ecommerce/auth:2.3.1
+          ports:
+            - containerPort: 8081
+          resources:
+            requests:
+              cpu: "150m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          env:
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: url
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: jwt-secret
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth
+  namespace: ecommerce
+spec:
+  selector:
+    app: auth
+  ports:
+    - port: 8081
+      targetPort: 8081
