@@ -126,6 +126,7 @@ QUBOB was built from the ground up to satisfy every IBM Bob Hackathon evaluation
 | **Ask Mode** | Query & research | IBM docs consulted for PCI-DSS patterns, watsonx Orchestrate API schema, Kubernetes affinity rules | Session screenshots |
 | **Custom Rules** | `.bobrules` enforced | Strict typing, frozen Pydantic v2 models, pure-NumPy QIEA, 228-test gate, 50 MiB Bobcoin ceiling | [`.bobrules`](.bobrules) |
 | **Reusable Skill** | Package a Bob Skill | Turn-key `SKILL.md` with activation triggers, command map, result interpretation, memory persistence | [`skills/qubob/SKILL.md`](skills/qubob/SKILL.md) |
+| **MCP Server** | Native MCP Tool Server | Registered `qubob-mcp` with `qubob_analyze`, `qubob_optimize`, `qubob_diff` tools | [`.bob/mcp.json`](.bob/mcp.json) |
 | **watsonx Orchestrate (Bonus)** | OpenAPI 3.0.3 integration | Full skill spec + OpenAPI 3.0.3 endpoints: `/analyze`, `/optimize`, `/diff`, `/apply` | [`watsonx/openapi_spec.json`](watsonx/openapi_spec.json) |
 | **Bobcoin Budget** | Minimal context / RAM | Peak RSS **0.39 MiB** on Enterprise 64×12 topology — **< 1% of the 50 MiB ceiling** | Benchmark table below |
 
@@ -699,7 +700,10 @@ ibm-bob-qubob/
 │   ├── openapi_spec.json        # OpenAPI 3.0.3 spec for Orchestrate
 │   └── qubob_orchestrate_skill.json  # Skill descriptor
 ├── tests/                       # 228 passing tests
+├── .bob/
+│   └── mcp.json                 # Native IBM Bob Model Context Protocol (MCP) server
 ├── .bobrules                    # IBM Bob workspace rules (typing, test gate, Bobcoin ceiling)
+├── .env.example                 # Environment knobs (cluster registry, dashboard port)
 ├── pyproject.toml
 └── README.md
 ```
