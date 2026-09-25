@@ -598,6 +598,31 @@ The skill file ([`skills/qubob/SKILL.md`](skills/qubob/SKILL.md)) teaches Bob:
 4. **Memory** — persist topology analysis between sessions for incremental
    optimisation
 
+### 🔌 Model Context Protocol (MCP) Server Integration
+
+QUBOB includes a native Model Context Protocol (MCP) server configuration in [`.bob/mcp.json`](.bob/mcp.json). This allows IBM Bob IDE to discover and invoke QUBOB's optimization tools autonomously during agentic chat loops.
+
+#### Registered MCP Tools:
+
+| Tool Name | Parameters | Description |
+| :--- | :--- | :--- |
+| `qubob_analyze` | `path` (string) | Ingests manifests, constructs the NetworkX dependency graph, and returns top latency bottleneck edges. |
+| `qubob_optimize`| `path` (string), `algorithm` (qiea/ga/greedy), `generations` (int) | Executes quantum-inspired placement optimization, returning optimal node assignments and cost reduction %. |
+| `qubob_diff` | `path` (string) | Generates syntax-highlighted unified git diffs injecting Kubernetes `nodeAffinity` and `topologySpreadConstraints`. |
+
+#### How It Works in IBM Bob:
+The configuration in `.bob/mcp.json` is automatically loaded by IBM Bob upon workspace launch. In **Agent Mode**, Bob can autonomously invoke QUBOB's tools to inspect manifests and optimize topologies without manual terminal execution:
+```json
+{
+  "name": "qubob_optimize",
+  "arguments": {
+    "path": "examples/fintech",
+    "algorithm": "qiea",
+    "generations": 300
+  }
+}
+```
+
 ### watsonx Orchestrate Integration
 
 QUBOB also ships an **OpenAPI 3.0.3** specification ([`watsonx/openapi_spec.json`](watsonx/openapi_spec.json))
